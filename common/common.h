@@ -55,6 +55,7 @@ struct gpt_params {
     int32_t n_chunks                        = -1;    // max number of chunks to process (-1 = unlimited)
     int32_t n_parallel                      = 1;     // number of parallel sequences to decode
     int32_t n_sequences                     = 1;     // number of sequences to decode
+    int32_t n_trials_per_prompt             = 1;     // number of times to repeat the same prompt
     float   p_accept                        = 0.5f;  // speculative decoding accept probability
     float   p_split                         = 0.1f;  // speculative decoding split probability
     int32_t n_gpu_layers                    = -1;    // number of layers to store in VRAM (-1 - use default)
@@ -79,7 +80,9 @@ struct gpt_params {
     std::string model_draft       = "";                              // draft model for speculative decoding
     std::string model_alias       = "unknown"; // model alias
     std::string prompt            = "";
+    std::string system_prompt     = "";  // store the system prompt string for parallel executable
     std::string prompt_file       = "";  // store the external prompt file name
+    std::string system_prompt_file = ""; // store the external system prompt file name
     std::string path_prompt_cache = "";  // path to file for saving/loading prompt eval state
     std::string input_prefix      = "";  // string to prefix user inputs with
     std::string input_suffix      = "";  // string to suffix user inputs with

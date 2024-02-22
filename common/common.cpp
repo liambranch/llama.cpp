@@ -201,6 +201,25 @@ bool gpt_params_parse_ex(int argc, char ** argv, gpt_params & params) {
             if (!params.prompt.empty() && params.prompt.back() == '\n') {
                 params.prompt.pop_back();
             }
+        // EDITED FOR PROJECT DORUS
+        } else if (arg == "--system-prompt") {
+            if (++i >= argc) {
+                invalid_param = true;
+                break;
+            }
+            std::ifstream file(argv[i]);
+            if (!file) {
+                fprintf(stderr, "error: failed to open file '%s'\n", argv[i]);
+                invalid_param = true;
+                break;
+            }
+            // store the external file name in params for system prompt
+            params.system_prompt_file = argv[i];
+            std::copy(std::istreambuf_iterator<char>(file), std::istreambuf_iterator<char>(), back_inserter(params.system_prompt));
+            if (!params.system_prompt.empty() && params.system_prompt.back() == '\n') {
+                params.system_prompt.pop_back();
+            }
+        // END EDITS FOR PROJECT DORUS
         } else if (arg == "-n" || arg == "--n-predict") {
             if (++i >= argc) {
                 invalid_param = true;
@@ -416,6 +435,12 @@ bool gpt_params_parse_ex(int argc, char ** argv, gpt_params & params) {
                 break;
             }
             params.n_sequences = std::stoi(argv[i]);
+        } else if (arg == "-tpp" || arg == "--trials_per_prompt") {
+            if (++i >= argc) {
+                invalid_param = true;
+                break;
+            }
+            params.n_trials_per_prompt = std::stoi(argv[i]);
         } else if (arg == "--p-accept" || arg == "-pa") {
             if (++i >= argc) {
                 invalid_param = true;

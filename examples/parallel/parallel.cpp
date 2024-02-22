@@ -9,6 +9,8 @@
 #include <string>
 #include <vector>
 #include <ctime>
+#include <iostream>
+#include <fstream>
 
 // trim whitespace from the beginning and end of a string
 static std::string trim(const std::string & str) {
@@ -64,6 +66,7 @@ struct client {
     int64_t t_start_prompt;
     int64_t t_start_gen;
 
+    int32_t prompt_i  = -1;
     int32_t n_prompt  = 0;
     int32_t n_decoded = 0;
     int32_t i_batch   = -1;
@@ -110,8 +113,17 @@ int main(int argc, char ** argv) {
     // requests to simulate
     const int32_t n_seq = params.n_sequences;
 
+    // group size of requests to simulate
+    const int32_t n_trials_per_prompt = params.n_trials_per_prompt;
+
     // insert new requests as soon as the previous one is done
     const bool cont_batching = params.cont_batching;
+
+    static std::string k_system = params.system_prompt;
+
+    // open a basic output file
+    std::ofstream output;
+    output.open("llm.out");
 
 #ifndef LOG_DISABLE_LOGS
     log_set_target(log_filename_generator("parallel", "log"));
@@ -137,7 +149,7 @@ int main(int argc, char ** argv) {
         int index = 0;
         printf("\n\033[32mNow printing the external prompt file %s\033[0m\n\n", params.prompt_file.c_str());
 
-        std::vector<std::string> prompts = split_string(params.prompt, '\n');
+        std::vector<std::string> prompts = split_string(params.prompt, '@');
         for (const auto& prompt : prompts) {
             k_prompts.resize(index + 1);
             k_prompts[index] = prompt;
@@ -171,6 +183,7 @@ int main(int argc, char ** argv) {
     int32_t n_total_prompt = 0;
     int32_t n_total_gen    = 0;
     int32_t n_cache_miss   = 0;
+    int32_t ik = 0;
 
     const auto t_main_start = ggml_time_us();
 
@@ -180,6 +193,7 @@ int main(int argc, char ** argv) {
 
     {
         LOG_TEE("%s: Evaluating the system prompt ...\n", __func__);
+        LOG_TEE("\033[32m%s\033[0m\n", k_system.c_str());
 
         for (int32_t i = 0; i < n_tokens_system; ++i) {
             llama_batch_add(batch, tokens_system[i], i, { 0 }, false);
@@ -228,14 +242,15 @@ int main(int argc, char ** argv) {
         // insert new sequences for decoding
         if (cont_batching || batch.n_tokens == 0) {
             for (auto & client : clients) {
-                if (client.seq_id == -1 && g_seq_id < n_seq) {
+                if (client.seq_id == -1 && g_seq_id < n_seq && ik < k_prompts.size()) {
                     client.seq_id = g_seq_id;
 
                     client.t_start_prompt = ggml_time_us();
                     client.t_start_gen    = 0;
 
-                    client.input    = k_prompts[rand() % k_prompts.size()];
-                    client.prompt   = client.input + "\nAssistant:";
+                    client.input    = k_prompts[ik];
+                    client.prompt_i = ik;
+                    client.prompt   = client.input + "\n";
                     client.response = "";
 
                     llama_sampling_reset(client.ctx_sampling);
@@ -257,10 +272,10 @@ int main(int argc, char ** argv) {
                     client.n_decoded = 0;
                     client.i_batch   = batch.n_tokens - 1;
 
-                    LOG_TEE("\033[31mClient %3d, seq %4d, started decoding ...\033[0m\n", client.id, client.seq_id);
+                    LOG_TEE("\033[31mClient %3d, seq %4d, ik %4d started decoding ...\033[0m\n", client.id, client.seq_id, ik);
 
                     g_seq_id += 1;
-
+                    if (g_seq_id % n_trials_per_prompt == 0) ik += 1;
                     // insert new requests one-by-one
                     //if (cont_batching) {
                     //    break;
@@ -346,9 +361,9 @@ int main(int argc, char ** argv) {
 
                 if (client.n_decoded > 2 &&
                         (id == llama_token_eos(model) ||
-                         (params.n_predict > 0 && client.n_decoded + client.n_prompt >= params.n_predict) ||
+                         (params.n_predict > 0 && client.n_decoded >= params.n_predict) ||
                          client.response.find("User:") != std::string::npos ||
-                         client.response.find('\n') != std::string::npos)) {
+                         client.response.find('@') != std::string::npos)) {
                     // basic reverse prompt
                     const size_t pos = client.response.find("User:");
                     if (pos != std::string::npos) {
@@ -367,7 +382,10 @@ int main(int argc, char ** argv) {
                             n_cache_miss,
                             ::trim(client.input).c_str(),
                             ::trim(client.response).c_str());
-
+                    
+                    output << "######" << client.prompt_i << "#" << std::endl;
+                    output << trim(client.response).c_str() << std::endl;
+                    output << "######" << std::endl;
                     n_total_prompt += client.n_prompt;
                     n_total_gen    += client.n_decoded;
 
@@ -407,6 +425,8 @@ int main(int argc, char ** argv) {
     llama_backend_free();
 
     fprintf(stderr, "\n\n");
+
+    output.close();
 
     return 0;
 }
